@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { User, Space } = require('../models');
 const authMiddleware = require('../middleware/auth');
-const { JWT_SECRET, JWT_EXPIRES_IN, COOKIE_MAX_AGE_MS, IS_PRODUCTION } = require('../config');
+const { JWT_SECRET, JWT_EXPIRES_IN, COOKIE_MAX_AGE_MS, COOKIE_SECURE } = require('../config');
 
 const router = express.Router();
 
@@ -25,8 +25,8 @@ const loginLimiter = rateLimit({
 const setTokenCookie = (res, token) => {
   res.cookie('token', token, {
     httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: IS_PRODUCTION ? 'strict' : 'lax',
+    secure: COOKIE_SECURE,
+    sameSite: COOKIE_SECURE ? 'strict' : 'lax',
     maxAge: COOKIE_MAX_AGE_MS,
   });
 };
@@ -118,8 +118,8 @@ router.get('/me', authMiddleware, async (req, res, next) => {
 router.post('/logout', (req, res) => {
   res.clearCookie('token', {
     httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: IS_PRODUCTION ? 'strict' : 'lax',
+    secure: COOKIE_SECURE,
+    sameSite: COOKIE_SECURE ? 'strict' : 'lax',
   });
   return res.status(200).json({ message: 'Logged out successfully.' });
 });

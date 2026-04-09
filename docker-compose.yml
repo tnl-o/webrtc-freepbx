@@ -1,109 +1,31 @@
+# ==============================================================================
+# WebRTC Phone — браузерный SIP-телефон (LAN)
+# ==============================================================================
+# АТС (Asterisk / FreePBX) поднимается отдельно на другом сервере.
+#
+# Быстрый старт:
+#   docker compose up -d
+#   Откройте http://<IP-хоста>:${PHONE_PORT:-80}
+#   Укажите extension, SIP-пароль и ws/wss URL вашей АТС.
+# ==============================================================================
+
 services:
-  # ── PostgreSQL ──────────────────────────────────────────────────────────────
-  postgres:
-    image: postgres:15-alpine
-    container_name: webrtc_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB:       ${DB_NAME:-webrtc}
-      POSTGRES_USER:     ${DB_USER:-webrtc}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-webrtc} -d ${DB_NAME:-webrtc}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    networks:
-      - webrtc_net
-
-  # ── Express API ─────────────────────────────────────────────────────────────
-  server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    container_name: webrtc_server
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      NODE_ENV:        production
-      PORT:            ${PORT:-3001}
-      DB_HOST:         postgres
-      DB_PORT:         5432
-      DB_NAME:         ${DB_NAME:-webrtc}
-      DB_USER:         ${DB_USER:-webrtc}
-      DB_PASSWORD:     ${DB_PASSWORD:?DB_PASSWORD is required}
-      JWT_SECRET:      ${JWT_SECRET:?JWT_SECRET is required}
-      JWT_EXPIRES_IN:  ${JWT_EXPIRES_IN:-8h}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://localhost}
-      COOKIE_SECURE:   ${COOKIE_SECURE:-true}
-    networks:
-      - webrtc_net
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3001}/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── React Frontend (Nginx + HTTPS) ─────────────────────────────────────────
-  client:
+  phone:
     build:
       context: ./client
       dockerfile: Dockerfile
-    container_name: webrtc_client
+    container_name: webrtc-phone
     restart: unless-stopped
-    depends_on:
-      server:
-        condition: service_healthy
     ports:
-      - "80:80"
-      - "${CLIENT_HTTPS_PORT:-443}:443"
-    volumes:
-      # Self-signed TLS certs — generate with: ./scripts/gen-certs.sh
-      - ./certs:/etc/nginx/certs:ro
+      - "${PHONE_PORT:-80}:80"
     networks:
-      - webrtc_net
+      - phone_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- --no-check-certificate https://localhost/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
 
-  # ── Asterisk (WebRTC SIP PBX) ───────────────────────────────────────────────
-  asterisk:
-    build:
-      context: ./asterisk
-      dockerfile: Dockerfile
-    container_name: webrtc_asterisk
-    restart: unless-stopped
-    environment:
-      # Set to the LAN IP of the Docker host that browser clients can reach
-      ASTERISK_EXTERNAL_IP: ${ASTERISK_EXTERNAL_IP:-127.0.0.1}
-      # SIP passwords for test extensions
-      SIP_PASSWORD_1001: ${SIP_PASSWORD_1001:-WebRTC1001!}
-      SIP_PASSWORD_1002: ${SIP_PASSWORD_1002:-WebRTC1002!}
-      SIP_PASSWORD_1003: ${SIP_PASSWORD_1003:-WebRTC1003!}
-    ports:
-      - "${ASTERISK_UDP_PORT:-5060}:5060/udp"
-      - "${ASTERISK_WS_PORT:-8088}:8088/tcp"
-      - "${ASTERISK_WSS_PORT:-8089}:8089/tcp"
-      # RTP media ports — must match rtp.conf rtpstart/rtpend
-      - "10000-10100:10000-10100/udp"
-    volumes:
-      # Persist Asterisk DB and generated certs between restarts
-      - asterisk_data:/var/lib/asterisk
-      - asterisk_keys:/etc/asterisk/keys
-    networks:
-      - webrtc_net
-
-volumes:
-  postgres_data:
-  asterisk_data:
-  asterisk_keys:
-
 networks:
-  webrtc_net:
+  phone_net:
     driver: bridge
