@@ -42,5 +42,5 @@ cookies.txt
 cookies2.txt
 cookies3.txt
 
-# Docker
-.dockerignore
+# Docker (только корень репозитория; client/.dockerignore отслеживается)
+/.dockerignore
