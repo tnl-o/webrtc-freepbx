@@ -32,7 +32,11 @@ module.exports = (sequelize) => {
         field: 'pbx_wss_url',
         validate: {
           notEmpty: true,
-          isUrl: true,
+          isWssUrl(value) {
+            if (!/^(wss?|https?):\/\//i.test(value)) {
+              throw new Error('pbxWssUrl must start with ws://, wss://, http://, or https://');
+            }
+          },
         },
       },
       userId: {

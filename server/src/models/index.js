@@ -3,9 +3,9 @@
 const { Sequelize } = require('sequelize');
 
 const sequelize = new Sequelize(
-  process.env.DB_NAME || 'webrtc_freepbx',
-  process.env.DB_USER || 'postgres',
-  process.env.DB_PASSWORD || 'postgres',
+  process.env.DB_NAME || 'webrtc',
+  process.env.DB_USER || 'webrtc',
+  process.env.DB_PASSWORD || 'webrtcpass',
   {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT, 10) || 5432,
@@ -26,8 +26,9 @@ db.Sequelize = Sequelize;
 db.sequelize = sequelize;
 
 // Import models
-db.User = require('./User')(sequelize);
-db.Space = require('./Space')(sequelize);
+db.User        = require('./User')(sequelize);
+db.Space       = require('./Space')(sequelize);
+db.CallHistory = require('./CallHistory')(sequelize);
 
 // Run associations
 Object.values(db).forEach((model) => {

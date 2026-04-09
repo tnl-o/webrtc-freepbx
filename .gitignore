@@ -30,8 +30,16 @@ Thumbs.db
 *.swp
 *.swo
 
-# Claude Code internal
+# Tool internals
 .claude/
+.qwen/
+
+# Generated TLS certs (mount at runtime, never commit private keys)
+certs/
+
+# Temporary files
+cookies.txt
+cookies2.txt
 
 # Docker
 .dockerignore

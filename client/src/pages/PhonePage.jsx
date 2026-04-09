@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../App.jsx';
-import api from '../api/index.js';
 import useSIP from '../hooks/useSIP.js';
 import StatusBar from '../components/StatusBar.jsx';
 import Dialpad from '../components/Dialpad.jsx';
@@ -10,35 +9,18 @@ import IncomingCall from '../components/IncomingCall.jsx';
 import CallHistory from '../components/CallHistory.jsx';
 
 export default function PhonePage() {
-  const { user, logout } = useAuth();
+  const { user, sipConfig, logout } = useAuth();
   const navigate = useNavigate();
-  const [sipConfig, setSipConfig] = useState(null);
-  const [configError, setConfigError] = useState('');
-  const [loggingOut, setLoggingOut] = useState(false);
+  const [loggingOut,    setLoggingOut]    = useState(false);
+  const [refreshToken,  setRefreshToken]  = useState(0);
 
-  // Fetch SIP config on mount
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .get('/auth/me')
-      .then(({ data }) => {
-        if (cancelled) return;
-        if (data.space) {
-          setSipConfig({
-            extension: data.space.extension,
-            sipPassword: data.space.sipPassword,
-            pbxWssUrl: data.space.pbxWssUrl,
-          });
-        } else {
-          setConfigError('No SIP space assigned to your account. Contact an administrator.');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setConfigError('Failed to load SIP configuration.');
-      });
-    return () => {
-      cancelled = true;
-    };
+  const configError = !sipConfig
+    ? 'No SIP space assigned to your account. Contact an administrator.'
+    : '';
+
+  // Called by useSIP after each call is saved to the API — triggers history refresh
+  const handleCallSaved = useCallback(() => {
+    setRefreshToken((t) => t + 1);
   }, []);
 
   const {
@@ -47,7 +29,6 @@ export default function PhonePage() {
     incomingCall,
     isMuted,
     isOnHold,
-    callHistory,
     makeCall,
     answerCall,
     rejectCall,
@@ -55,7 +36,7 @@ export default function PhonePage() {
     sendDTMF,
     toggleMute,
     toggleHold,
-  } = useSIP(sipConfig);
+  } = useSIP(sipConfig, handleCallSaved);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -194,7 +175,7 @@ export default function PhonePage() {
 
           {/* Right column */}
           <div>
-            <CallHistory history={callHistory} />
+            <CallHistory refreshToken={refreshToken} />
           </div>
         </div>
       </main>

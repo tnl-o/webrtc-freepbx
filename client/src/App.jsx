@@ -17,14 +17,23 @@ export function useAuth() {
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [sipConfig, setSipConfig] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchMe = useCallback(async () => {
     try {
       const { data } = await api.get('/auth/me');
       setUser(data);
+      if (data.space) {
+        setSipConfig({
+          extension: data.space.extension,
+          sipPassword: data.space.sipPassword,
+          pbxWssUrl: data.space.pbxWssUrl,
+        });
+      }
     } catch {
       setUser(null);
+      setSipConfig(null);
     } finally {
       setLoading(false);
     }
@@ -45,11 +54,12 @@ function AuthProvider({ children }) {
       // Ignore errors on logout
     } finally {
       setUser(null);
+      setSipConfig(null);
     }
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refetchMe: fetchMe }}>
+    <AuthContext.Provider value={{ user, sipConfig, loading, login, logout, refetchMe: fetchMe }}>
       {children}
     </AuthContext.Provider>
   );

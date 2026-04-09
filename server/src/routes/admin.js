@@ -5,10 +5,9 @@ const bcrypt = require('bcrypt');
 const { User, Space } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
+const { BCRYPT_SALT_ROUNDS } = require('../config');
 
 const router = express.Router();
-
-const BCRYPT_SALT_ROUNDS = 12;
 
 // Apply auth + admin guard to every route in this router
 router.use(authMiddleware, adminMiddleware);
@@ -29,7 +28,7 @@ router.get('/users', async (req, res, next) => {
         {
           model: Space,
           as: 'space',
-          attributes: ['id', 'extension', 'sipPassword', 'pbxWssUrl'],
+          attributes: ['id', 'extension', 'pbxWssUrl'],
           required: false,
         },
       ],
@@ -53,6 +52,18 @@ router.post('/users', async (req, res, next) => {
 
     if (!login || !password) {
       return res.status(400).json({ error: 'Login and password are required.' });
+    }
+
+    if (typeof login !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Login and password must be strings.' });
+    }
+
+    if (login.length < 3 || login.length > 100) {
+      return res.status(400).json({ error: 'Login must be between 3 and 100 characters.' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
     }
 
     if (role && !['user', 'admin'].includes(role)) {
@@ -156,7 +167,7 @@ router.delete('/users/:id', async (req, res, next) => {
 router.get('/spaces', async (req, res, next) => {
   try {
     const spaces = await Space.findAll({
-      attributes: ['id', 'extension', 'sipPassword', 'pbxWssUrl', 'userId', 'createdAt', 'updatedAt'],
+      attributes: ['id', 'extension', 'pbxWssUrl', 'userId', 'createdAt', 'updatedAt'],
       include: [
         {
           model: User,
@@ -167,7 +178,14 @@ router.get('/spaces', async (req, res, next) => {
       order: [['id', 'ASC']],
     });
 
-    return res.status(200).json(spaces);
+    // Mask SIP passwords in list responses
+    const maskedSpaces = spaces.map((space) => {
+      const data = space.toJSON();
+      data.sipPassword = '****';
+      return data;
+    });
+
+    return res.status(200).json(maskedSpaces);
   } catch (err) {
     return next(err);
   }
@@ -202,7 +220,10 @@ router.post('/spaces', async (req, res, next) => {
 
     const space = await Space.create({ extension, sipPassword, pbxWssUrl, userId });
 
-    return res.status(201).json(space);
+    // Return masked password
+    const responseData = space.toJSON();
+    responseData.sipPassword = '****';
+    return res.status(201).json(responseData);
   } catch (err) {
     if (err.name === 'SequelizeValidationError') {
       return res.status(400).json({ error: err.errors.map((e) => e.message).join(', ') });
@@ -250,7 +271,10 @@ router.put('/spaces/:id', async (req, res, next) => {
     await space.update(updates);
     await space.reload();
 
-    return res.status(200).json(space);
+    // Return masked password
+    const responseData = space.toJSON();
+    responseData.sipPassword = '****';
+    return res.status(200).json(responseData);
   } catch (err) {
     if (err.name === 'SequelizeValidationError') {
       return res.status(400).json({ error: err.errors.map((e) => e.message).join(', ') });

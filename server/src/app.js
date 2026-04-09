@@ -6,15 +6,21 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 
 const db = require('./models');
-const authRoutes = require('./routes/auth');
+const { BCRYPT_SALT_ROUNDS } = require('./config');
+const { runMigrations } = require('./migrations');
+const authRoutes  = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const callsRoutes = require('./routes/calls');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
-const BCRYPT_SALT_ROUNDS = 12;
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost';
+
+// Trust proxy — required for express-rate-limit to see real client IP behind Nginx
+app.set('trust proxy', 1);
 
 // ---------------------------------------------------------------------------
 // CORS — allow the configured frontend origin and allow credentials (cookies)
@@ -45,8 +51,9 @@ app.get('/health', (req, res) => {
 // ---------------------------------------------------------------------------
 // API routes
 // ---------------------------------------------------------------------------
-app.use('/api/auth', authRoutes);
+app.use('/api/auth',  authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/calls', callsRoutes);
 
 // ---------------------------------------------------------------------------
 // 404 handler — catch requests to unknown routes
@@ -98,32 +105,38 @@ const seedDefaultAdmin = async () => {
   const adminCount = await User.count({ where: { role: 'admin' } });
 
   if (adminCount === 0) {
-    console.log('No admin user found — creating default admin (login: admin)...');
-    const passwordHash = await bcrypt.hash('admin123', BCRYPT_SALT_ROUNDS);
+    // Generate a random password and log it once
+    const randomPassword = crypto.randomBytes(16).toString('hex');
+    console.log('No admin user found — creating default admin (login: admin)');
+    console.log(`⚠️  DEFAULT ADMIN PASSWORD: ${randomPassword}`);
+    console.log('⚠️  Save this password and change it immediately after first login!');
+
+    const passwordHash = await bcrypt.hash(randomPassword, BCRYPT_SALT_ROUNDS);
     await User.create({
       login: 'admin',
       passwordHash,
       role: 'admin',
     });
-    console.log('Default admin user created. Please change the password immediately!');
   }
 };
 
 const startServer = async () => {
   try {
-    // Sync all models to the database (alter:true updates schema without dropping data)
-    await db.sequelize.sync({ alter: true });
-    console.log('Database synchronized successfully.');
+    await db.sequelize.authenticate();
+    console.log('[db] Connection established.');
+
+    await runMigrations(db.sequelize);
+    console.log('[db] Migrations complete.');
 
     await seedDefaultAdmin();
 
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Frontend origin allowed: ${FRONTEND_ORIGIN}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`[server] Listening on port ${PORT}`);
+      console.log(`[server] Frontend origin: ${FRONTEND_ORIGIN}`);
+      console.log(`[server] Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (err) {
-    console.error('Failed to start server:', err);
+    console.error('[startup] Fatal error:', err);
     process.exit(1);
   }
 };

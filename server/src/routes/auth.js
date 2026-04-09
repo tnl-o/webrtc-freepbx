@@ -1,17 +1,23 @@
 'use strict';
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { User, Space } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { JWT_SECRET, JWT_EXPIRES_IN, COOKIE_MAX_AGE_MS, IS_PRODUCTION } = require('../config');
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_in_production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-const COOKIE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+// 10 attempts per 15 minutes per IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+});
 
 /**
  * Helper: set the JWT as a secure httpOnly cookie on the response.
@@ -30,7 +36,7 @@ const setTokenCookie = (res, token) => {
 // Body: { login, password }
 // Returns: { role } + sets httpOnly cookie with JWT
 // ---------------------------------------------------------------------------
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { login, password } = req.body;
 
@@ -92,7 +98,7 @@ router.get('/me', authMiddleware, async (req, res, next) => {
         ? {
             id: user.space.id,
             extension: user.space.extension,
-            sipPassword: user.space.sipPassword,
+            sipPassword: '****',
             pbxWssUrl: user.space.pbxWssUrl,
           }
         : null,

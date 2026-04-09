@@ -11,14 +11,22 @@ Browser ──HTTPS──► Nginx (client)
                        │              │
                        │           PostgreSQL
                        │
-Browser ──WSS──────────────────────► FreePBX PJSIP
+Browser ──WSS──────────────────────► Asterisk (PJSIP)
+                                       │
+                                    FreePBX (optional)
 ```
 
-| Service  | Technology                     |
-|----------|-------------------------------|
-| client   | React 18 + Vite + JsSIP + Tailwind → Nginx |
-| server   | Node.js 18 + Express + Sequelize |
-| database | PostgreSQL 15                  |
+| Service   | Technology                     |
+|-----------|-------------------------------|
+| client    | React 18 + Vite + JsSIP + Tailwind → Nginx |
+| server    | Node.js 18 + Express + Sequelize |
+| database  | PostgreSQL 15                  |
+| sip       | External Asterisk/FreePBX      |
+
+> **Note:** Asterisk is **not** included in docker-compose due to a known bug
+> in the Ubuntu 22.04 Asterisk package (Stasis initialization failure in
+> Docker containers). Use an external FreePBX server or build the provided
+> `asterisk/` directory on a Debian-based host.
 
 ---
 
@@ -34,8 +42,10 @@ cp .env.example .env
 
 Edit `.env` and set at minimum:
 - `DB_PASSWORD` — strong database password
-- `JWT_SECRET` — random 64-char hex string (`openssl rand -hex 64`)
-- `FRONTEND_ORIGIN` — URL where the app will be served (e.g. `https://phone.example.com`)
+- `JWT_SECRET` — random 64-char hex string (`openssl rand -hex 64`) — **server will not start without this**
+- `FRONTEND_ORIGIN` — URL where the app will be served (e.g. `http://localhost`)
+- `ASTERISK_EXTERNAL_IP` — your machine's IP for SIP NAT traversal
+- `SIP_PASSWORD_1001` – `SIP_PASSWORD_1003` — SIP extension passwords
 
 ### 2. Build and run
 
@@ -44,15 +54,16 @@ docker compose up --build -d
 ```
 
 The app will be available at `http://localhost` (or the port configured in `CLIENT_PORT`).
+Asterisk WebSocket (WSS) will be at `ws://localhost:8088/ws` or `wss://localhost:8089/ws`.
 
 ### 3. First login
 
-Default admin credentials (created automatically on first run):
+Default admin credentials (created automatically on first run with a **random password**):
 
 | Field    | Value      |
 |----------|-----------|
 | Login    | `admin`    |
-| Password | `admin123` |
+| Password | *(see Docker logs for generated password)* |
 
 **Change the admin password immediately after first login.**
 

@@ -31,7 +31,11 @@ export default function Dialpad({ status, onCall, currentCall }) {
 
   const handleCall = useCallback(() => {
     if (!canCall) return;
-    const trimmed = number.trim();
+    let trimmed = number.trim();
+    // Convert leading '+' to '00' for SIP compatibility
+    if (trimmed.startsWith('+')) {
+      trimmed = '00' + trimmed.slice(1);
+    }
     setNumber('');
     onCall(trimmed);
   }, [canCall, number, onCall]);

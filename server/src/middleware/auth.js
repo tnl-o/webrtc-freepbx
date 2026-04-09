@@ -2,8 +2,7 @@
 
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_in_production';
+const { JWT_SECRET } = require('../config');
 
 /**
  * Authentication middleware.
