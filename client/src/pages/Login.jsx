@@ -10,20 +10,25 @@ export default function Login() {
   const [loading,  setLoading]  = useState(false);
   const [showPass, setShowPass] = useState(false);
 
-  const { login: authLogin } = useAuth();
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const from      = location.state?.from?.pathname ?? '/';
+  // Use refetchMe so that sipConfig is populated immediately after login
+  // without requiring a page refresh. authLogin() only sets user state,
+  // but refetchMe() fetches the full profile including the SIP space.
+  const { refetchMe } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const from     = location.state?.from?.pathname ?? '/';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!login.trim())  { setError('Please enter your username.');  return; }
-    if (!password)      { setError('Please enter your password.');  return; }
+    if (!login.trim()) { setError('Please enter your username.'); return; }
+    if (!password)     { setError('Please enter your password.'); return; }
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { login: login.trim(), password });
-      authLogin(data.user ?? data);
+      // Step 1: authenticate → sets httpOnly cookie
+      await api.post('/auth/login', { login: login.trim(), password });
+      // Step 2: fetch full profile + SIP space → populates user & sipConfig in context
+      await refetchMe();
       navigate(from, { replace: true });
     } catch (err) {
       setError(err.response?.data?.error ?? 'Invalid credentials. Please try again.');

@@ -16,17 +16,12 @@ Browser ──WSS─────────────────────
                                     FreePBX (optional)
 ```
 
-| Service   | Technology                     |
-|-----------|-------------------------------|
-| client    | React 18 + Vite + JsSIP + Tailwind → Nginx |
-| server    | Node.js 18 + Express + Sequelize |
-| database  | PostgreSQL 15                  |
-| sip       | External Asterisk/FreePBX      |
-
-> **Note:** Asterisk is **not** included in docker-compose due to a known bug
-> in the Ubuntu 22.04 Asterisk package (Stasis initialization failure in
-> Docker containers). Use an external FreePBX server or build the provided
-> `asterisk/` directory on a Debian-based host.
+| Service   | Technology                                   |
+|-----------|----------------------------------------------|
+| client    | React 18 + Vite + JsSIP + Tailwind → Nginx   |
+| server    | Node.js 18 + Express + Sequelize             |
+| database  | PostgreSQL 15                                |
+| asterisk  | Asterisk 20 on Debian bookworm (Docker)      |
 
 ---
 
@@ -40,12 +35,23 @@ cd webrtc-freepbx
 cp .env.example .env
 ```
 
-Edit `.env` and set at minimum:
-- `DB_PASSWORD` — strong database password
-- `JWT_SECRET` — random 64-char hex string (`openssl rand -hex 64`) — **server will not start without this**
-- `FRONTEND_ORIGIN` — URL where the app will be served (e.g. `http://localhost`)
-- `ASTERISK_EXTERNAL_IP` — your machine's IP for SIP NAT traversal
-- `SIP_PASSWORD_1001` – `SIP_PASSWORD_1003` — SIP extension passwords
+Edit `.env` and fill in all required fields:
+
+```bash
+DB_PASSWORD=<strong-password>
+JWT_SECRET=$(openssl rand -hex 64)       # server refuses to start without this
+
+# Your Docker host's LAN IP — not 127.0.0.1 for multi-PC use
+# Linux: hostname -I | awk '{print $1}'
+# macOS: ipconfig getifaddr en0
+ASTERISK_EXTERNAL_IP=192.168.1.50        # ← replace with your real LAN IP
+
+FRONTEND_ORIGIN=http://192.168.1.50      # or https:// if you add TLS certs
+
+SIP_PASSWORD_1001=<strong-sip-password>
+SIP_PASSWORD_1002=<strong-sip-password>
+SIP_PASSWORD_1003=<strong-sip-password>
+```
 
 ### 2. Build and run
 
@@ -53,8 +59,18 @@ Edit `.env` and set at minimum:
 docker compose up --build -d
 ```
 
-The app will be available at `http://localhost` (or the port configured in `CLIENT_PORT`).
-Asterisk WebSocket (WSS) will be at `ws://localhost:8088/ws` or `wss://localhost:8089/ws`.
+The full stack starts: **postgres → server → client (Nginx) + asterisk**.
+
+| Service | URL |
+|---------|-----|
+| Web app | `http://192.168.1.50` (or port 443 with TLS) |
+| SIP WS  | `ws://192.168.1.50:8088/ws` |
+| SIP WSS | `wss://192.168.1.50:8089/ws` |
+
+> **Browser ↔ HTTPS / WSS rule:** Modern browsers block mixed content.
+> If the web app is served over **HTTPS**, SIP must use **wss://** (port 8089).
+> If served over **HTTP**, SIP may use **ws://** (port 8088).
+> The three built-in extensions (1001–1003) are pre-configured for WSS.
 
 ### 3. First login
 
@@ -69,60 +85,36 @@ Default admin credentials (created automatically on first run with a **random pa
 
 ---
 
-## FreePBX Configuration
+## Connecting Users to Extensions
 
-### Step 1 — Enable PJSIP WebSocket Transport
+### Built-in Asterisk (docker compose)
 
-1. **Admin → Advanced Settings**
-   - Set *Allow Anonymous Inbound SIP Calls* → **No**
+Three test extensions are ready out-of-the-box: **1001, 1002, 1003**.
+Passwords come from `.env` variables `SIP_PASSWORD_1001–1003`.
 
-2. **Connectivity → Asterisk SIP Settings → PJSIP tab**
-   - Scroll to *WebSocket Settings*
-   - Enable: **Enable WebSocket** ✓
-   - TLS: if you have a certificate, enable **Enable WSS**; otherwise use WS on port 8088
-   - Recommended production settings:
-     - Port: `8089` (WSS) or `8088` (WS)
-     - Bind: `0.0.0.0`
+After `docker compose up`:
 
-3. Click **Submit** → **Apply Config**
+1. Log in as **admin** → `/admin/users` → create a regular user
+2. Go to `/admin/spaces` → create a Space:
 
-### Step 2 — Create a WebRTC Extension
-
-1. **Applications → Extensions → Add Extension → Add PJSIP Extension**
-2. Fill in:
    | Field | Value |
    |-------|-------|
-   | User Extension | e.g. `1001` |
-   | Display Name | User's name |
-   | Secret | Strong SIP password |
-3. Navigate to the **Advanced** tab:
-   | Setting | Value |
-   |---------|-------|
-   | Enable WebRTC | **Yes** |
-   | Transport | **WSS** (or WS if no TLS) |
-   | DTLS-SRTP | **Yes** (required for WebRTC) |
-4. **Submit** → **Apply Config**
-
-### Step 3 — Firewall / Network
-
-- Open port `8089` (WSS) or `8088` (WS) to the browser clients
-- If FreePBX is behind NAT, configure **NAT Settings** in Asterisk SIP Settings:
-  - External Address: your public IP
-  - Local Networks: your LAN CIDR (e.g. `192.168.1.0/24`)
-- Enable the RTP port range (default `10000–20000`) in the firewall
-
-### Step 4 — Add Space in the Admin Panel
-
-1. Log in as admin at `http://your-server/admin/spaces`
-2. Create a space:
-   | Field | Example |
-   |-------|---------|
-   | User | (select the user) |
+   | User | *(select the user)* |
    | Extension | `1001` |
-   | SIP Password | (the secret from Step 2) |
-   | FreePBX WSS URL | `wss://pbx.example.com:8089/ws` |
+   | SIP Password | *(same as `SIP_PASSWORD_1001` in .env)* |
+   | FreePBX WSS URL | `wss://192.168.1.50:8089/ws` |
 
-The user will automatically register when they log in.
+3. The user logs in → SIP registration starts automatically → status shows **Connected**.
+
+> **Dialplan:** Extensions dial each other via the `_1XXX` pattern in `extensions.conf`.
+> Special codes: `*43` = echo test, `*99` = audio playback test.
+
+### Using an existing FreePBX server
+
+1. In FreePBX: **Connectivity → Asterisk SIP Settings → PJSIP** → enable WebSocket on port 8089 (WSS) → Apply Config
+2. Create a PJSIP extension with **Enable WebRTC = Yes**, **DTLS-SRTP = Yes**
+3. Open port `8089/tcp` and RTP range `10000–20000/udp` in the firewall
+4. In Space config set `pbxWssUrl = wss://<freepbx-ip>:8089/ws`
 
 ---
 
@@ -197,15 +189,33 @@ For production with a real domain and TLS certificate:
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---------|-------------|
-| Status stays "Registering" | FreePBX WSS port unreachable or wrong URL |
-| `Failed: Connection Error` | WebSocket blocked by firewall or wrong port |
-| Audio one-way | RTP ports not open or NAT misconfigured |
-| `401 Unauthorized` from SIP | Wrong SIP password in Space config |
-| Browser blocks WSS | Page served over HTTP but WSS URL uses `wss://` — use `ws://` for HTTP or add TLS |
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Status stays "Connecting…" after login | Wrong WSS URL or port blocked | Check `pbxWssUrl` in Space; open port 8089 in firewall |
+| `Failed: Connection Error` | WebSocket not reachable | Check `ASTERISK_EXTERNAL_IP` is real LAN IP, not 127.0.0.1 |
+| `Failed: 401` | Wrong SIP password | SIP password in Space must match `SIP_PASSWORD_100x` in `.env` |
+| Status shows "Connected" but call fails | Context mismatch or dialplan | Verify `context = from-webrtc` in `pjsip.conf`; check Asterisk logs |
+| Audio one-way or no audio | RTP ports not exposed | Ensure ports `10000–10100/udp` are mapped in docker-compose and not firewalled |
+| Mixed content browser error | HTTPS page + `ws://` URL | Use `wss://` for SIP URL when frontend is on HTTPS |
+| Status disappears on page refresh (old bug) | Fixed: refetchMe() after login | Upgrade to latest commit |
 
-Check browser console (F12 → Console) for detailed JsSIP logs.
+**Useful commands:**
+```bash
+# Asterisk CLI inside container
+docker exec -it webrtc_asterisk asterisk -r
+
+# Check registered peers
+asterisk -r -x "pjsip show endpoints"
+asterisk -r -x "pjsip show registrations"
+
+# Live call log
+docker logs -f webrtc_asterisk
+
+# Server logs
+docker logs -f webrtc_server
+```
+
+Check browser console (F12 → Console) for detailed JsSIP events.
 
 ---
 

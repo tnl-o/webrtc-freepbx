@@ -1,31 +1,43 @@
-;==========================
-; PJSIP Global Settings
-;==========================
+;==============================================================================
+; Asterisk PJSIP configuration — WebRTC LAN mode
+; Generated from pjsip.conf.tmpl by entrypoint.sh via envsubst.
+; Variables: ${ASTERISK_EXTERNAL_IP}, ${SIP_PASSWORD_100x}
+;==============================================================================
+
 [global]
 type = global
 debug = no
 
-;==========================
+;==============================================================================
 ; Transports
-;==========================
+; For HTTPS-served pages, browsers enforce mixed-content rules:
+;   HTTPS page  → must use wss:// for SIP WebSocket
+;   HTTP page   → may use ws:// for SIP WebSocket
+;
+; We expose BOTH, but all three test extensions use transport-wss.
+; Use transport-ws only if you serve the frontend over plain HTTP.
+;==============================================================================
 
-; Standard UDP transport for SIP
 [transport-udp]
 type = transport
 protocol = udp
 bind = 0.0.0.0:5060
 external_media_address = ${ASTERISK_EXTERNAL_IP}
 external_signaling_address = ${ASTERISK_EXTERNAL_IP}
+local_net = 10.0.0.0/8
+local_net = 172.16.0.0/12
+local_net = 192.168.0.0/16
 
-; WebSocket (ws://) transport — used by browser WebRTC clients
 [transport-ws]
 type = transport
 protocol = ws
 bind = 0.0.0.0:8088
 external_media_address = ${ASTERISK_EXTERNAL_IP}
 external_signaling_address = ${ASTERISK_EXTERNAL_IP}
+local_net = 10.0.0.0/8
+local_net = 172.16.0.0/12
+local_net = 192.168.0.0/16
 
-; Secure WebSocket (wss://) transport
 [transport-wss]
 type = transport
 protocol = wss
@@ -34,93 +46,88 @@ cert_file = /etc/asterisk/keys/asterisk.pem
 priv_key_file = /etc/asterisk/keys/asterisk.pem
 external_media_address = ${ASTERISK_EXTERNAL_IP}
 external_signaling_address = ${ASTERISK_EXTERNAL_IP}
+local_net = 10.0.0.0/8
+local_net = 172.16.0.0/12
+local_net = 192.168.0.0/16
 
-;==========================
-; Default Endpoint Template
-;==========================
-; NOTE: transport is intentionally omitted here — each extension
-; should specify its own transport (transport-ws or transport-wss)
-; to avoid overriding the template's transport setting.
+;==============================================================================
+; Endpoint template (inherited by all extensions)
+; webrtc=yes expands to: use_avpf, media_encryption=dtls, dtls_verify=fingerprint,
+;   dtls_setup=actpass, ice_support=yes, rtcp_mux=yes, use_received_transport=yes
+;==============================================================================
 
 [webrtc_endpoint](!)
 type = endpoint
-context = from-internal
+; ── Fix: context matches extensions.conf [from-webrtc] section ──────────────
+context = from-webrtc
 allow = !all,ulaw,alaw,g722,opus
 webrtc = yes
 dtls_cert_file = /etc/asterisk/keys/asterisk.pem
 dtls_private_key = /etc/asterisk/keys/asterisk.pem
 dtls_setup = actpass
 dtls_verify = no
-media_encryption = dtls
-ice_support = yes
-use_avpf = yes
-rtcp_mux = yes
 timers = no
 direct_media = no
-; DTMF — required for in-band digit transmission
 dtmf_mode = rfc4733
-; NAT handling
 force_rport = yes
 rewrite_contact = yes
-; Aggregate in-band DTMF
-aggregate_mwi = yes
 
-; Default authentication template
 [webrtc_auth](!)
 type = auth
 auth_type = userpass
 
-; Default AOR (Address of Record) template
 [webrtc_aor](!)
 type = aor
 max_contacts = 5
 qualify_frequency = 30
 remove_existing = yes
 
-;==========================
-; Extension 1001 (WSS — secure)
-;==========================
+;==============================================================================
+; Extension 1001 — WSS (required for HTTPS frontend)
+;==============================================================================
 
 [1001](webrtc_endpoint)
 transport = transport-wss
 auth = 1001_auth
 aors = 1001_aor
+callerid = "Extension 1001" <1001>
 
 [1001_auth](webrtc_auth)
 username = 1001
-password = ${SIP_PASSWORD_1001:-SecurePass1001!}
+password = ${SIP_PASSWORD_1001:-WebRTC1001!}
 
 [1001_aor](webrtc_aor)
-mailbox = 1001@default
 
-;==========================
-; Extension 1002 (WSS — secure)
-;==========================
+;==============================================================================
+; Extension 1002 — WSS
+;==============================================================================
 
 [1002](webrtc_endpoint)
 transport = transport-wss
 auth = 1002_auth
 aors = 1002_aor
+callerid = "Extension 1002" <1002>
 
 [1002_auth](webrtc_auth)
 username = 1002
-password = ${SIP_PASSWORD_1002:-SecurePass1002!}
+password = ${SIP_PASSWORD_1002:-WebRTC1002!}
 
 [1002_aor](webrtc_aor)
-mailbox = 1002@default
 
-;==========================
-; Extension 1003 (WS — non-TLS, for local testing)
-;==========================
+;==============================================================================
+; Extension 1003 — WSS
+; (Previously ws://, changed to wss:// to prevent mixed-content browser errors
+;  when the frontend is served over HTTPS)
+;==============================================================================
 
 [1003](webrtc_endpoint)
-transport = transport-ws
+transport = transport-wss
 auth = 1003_auth
 aors = 1003_aor
+callerid = "Extension 1003" <1003>
 
 [1003_auth](webrtc_auth)
 username = 1003
-password = ${SIP_PASSWORD_1003:-SecurePass1003!}
+password = ${SIP_PASSWORD_1003:-WebRTC1003!}
 
 [1003_aor](webrtc_aor)
-mailbox = 1003@default

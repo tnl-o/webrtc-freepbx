@@ -90,6 +90,9 @@ router.get('/me', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'User not found.' });
     }
 
+    // Return the real sipPassword — this is the user's own space config,
+    // needed by JsSIP for SIP registration. The admin list endpoint (/api/admin/spaces)
+    // still masks passwords since admins see all users' spaces.
     return res.status(200).json({
       id: user.id,
       login: user.login,
@@ -98,7 +101,7 @@ router.get('/me', authMiddleware, async (req, res, next) => {
         ? {
             id: user.space.id,
             extension: user.space.extension,
-            sipPassword: '****',
+            sipPassword: user.space.sipPassword,
             pbxWssUrl: user.space.pbxWssUrl,
           }
         : null,
