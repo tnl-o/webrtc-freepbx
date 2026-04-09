@@ -11,15 +11,59 @@ function formatDuration(seconds) {
   return `${m}:${s}`;
 }
 
+function ensureRemoteAudioEl(audioRef) {
+  if (typeof document === 'undefined') return null;
+  if (audioRef.current) return audioRef.current;
+  let el = document.getElementById('remote-audio');
+  if (!el) {
+    el = document.createElement('audio');
+    el.id = 'remote-audio';
+    el.setAttribute('playsinline', '');
+    el.autoplay = true;
+    el.style.display = 'none';
+    document.body.appendChild(el);
+  }
+  audioRef.current = el;
+  return el;
+}
+
+function bindRemoteAudio(peerconnection, audioEl) {
+  if (!audioEl || !peerconnection) return;
+
+  const playStream = (stream) => {
+    if (!stream?.getAudioTracks?.().length) return;
+    audioEl.srcObject = stream;
+    void audioEl.play().catch(() => {});
+  };
+
+  peerconnection.addEventListener('track', (ev) => {
+    if (ev.track.kind === 'audio') {
+      playStream(ev.streams[0] ?? new MediaStream([ev.track]));
+    }
+  });
+
+  peerconnection.addEventListener('addstream', (ev) => {
+    playStream(ev.stream);
+  });
+
+  try {
+    peerconnection.getReceivers?.()?.forEach?.((receiver) => {
+      if (receiver.track?.kind === 'audio' && receiver.track.readyState === 'live') {
+        playStream(new MediaStream([receiver.track]));
+      }
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
- * Standalone SIP hook — no AuthContext, no backend API.
- * Connects directly to the SIP/WebSocket endpoint of your PBX.
+ * SIP/WebRTC hook — direct connection to PBX WebSocket. No backend.
  *
  * @param {{ extension: string, sipPassword: string, pbxWssUrl: string } | null} config
- * @returns SIP state and actions
  */
-export default function useSIP(config) {
-  const [status, setStatus] = useState('idle');       // idle | connecting | registered | failed | unregistering
+export default function usePhone(config) {
+  const [status, setStatus] = useState('idle');
   const [currentCall, setCurrentCall] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   const [callHistory, setCallHistory] = useState([]);
@@ -30,29 +74,17 @@ export default function useSIP(config) {
   const uaRef = useRef(null);
   const retryTimerRef = useRef(null);
   const retryCountRef = useRef(0);
+  const sipDomainRef = useRef('');
   const callStartTimeRef = useRef(null);
   const durationTimerRef = useRef(null);
   const remoteAudioRef = useRef(null);
 
-  // ── Audio element setup ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (typeof document !== 'undefined' && !remoteAudioRef.current) {
-      const audio = document.createElement('audio');
-      audio.id = 'remote-audio';
-      audio.autoplay = true;
-      audio.style.display = 'none';
-      document.body.appendChild(audio);
-      remoteAudioRef.current = audio;
-    }
-    return () => {
-      if (remoteAudioRef.current?.parentNode) {
-        remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
-        remoteAudioRef.current = null;
-      }
-    };
+  useEffect(() => () => {
+    const el = remoteAudioRef.current;
+    if (el?.parentNode) el.parentNode.removeChild(el);
+    remoteAudioRef.current = null;
   }, []);
 
-  // ── Duration timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (currentCall && callStartTimeRef.current) {
       durationTimerRef.current = setInterval(() => {
@@ -61,32 +93,36 @@ export default function useSIP(config) {
     }
     return () => {
       clearInterval(durationTimerRef.current);
+      durationTimerRef.current = null;
       setCallDuration(0);
     };
   }, [currentCall]);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
   const pushHistory = useCallback((entry) => {
-    const entryWithId = { ...entry, id: crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2) };
+    const entryWithId = {
+      ...entry,
+      id: crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2),
+    };
     setCallHistory((prev) => [entryWithId, ...prev].slice(0, MAX_HISTORY));
   }, []);
 
-  const getBackoffDelay = () => {
-    const delay = Math.min(BACKOFF_BASE_MS * Math.pow(2, retryCountRef.current), BACKOFF_MAX_MS);
+  const getBackoffDelay = useCallback(() => {
+    const delay = Math.min(BACKOFF_BASE_MS * 2 ** retryCountRef.current, BACKOFF_MAX_MS);
     retryCountRef.current += 1;
     return delay;
-  };
+  }, []);
 
   const endCall = useCallback((session, type, wasAnswered) => {
     clearInterval(durationTimerRef.current);
-    const duration = callStartTimeRef.current
+    durationTimerRef.current = null;
+    const durationSec = callStartTimeRef.current
       ? Math.floor((Date.now() - callStartTimeRef.current) / 1000)
       : 0;
 
     pushHistory({
       type: type === 'incoming' && !wasAnswered ? 'missed' : type,
       number: session.remote_identity?.uri?.user ?? 'Unknown',
-      duration: formatDuration(duration),
+      duration: formatDuration(durationSec),
       timestamp: new Date().toISOString(),
     });
 
@@ -97,10 +133,10 @@ export default function useSIP(config) {
     setIsOnHold(false);
   }, [pushHistory]);
 
-  // ── UA setup ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!config?.extension || !config?.sipPassword || !config?.pbxWssUrl) {
       setStatus('idle');
+      sipDomainRef.current = '';
       return;
     }
 
@@ -113,6 +149,8 @@ export default function useSIP(config) {
       setStatus('failed');
       return;
     }
+
+    sipDomainRef.current = hostname;
 
     const socket = new JsSIP.WebSocketInterface(config.pbxWssUrl);
 
@@ -130,16 +168,15 @@ export default function useSIP(config) {
     uaRef.current = ua;
     setStatus('connecting');
 
-    // ── UA Events ────────────────────────────────────────────────────────────
     ua.on('connected', () => setStatus('connecting'));
+
     ua.on('disconnected', () => {
       setStatus('failed');
-      // Auto-reconnect
+      clearTimeout(retryTimerRef.current);
       const delay = getBackoffDelay();
       retryTimerRef.current = setTimeout(() => {
-        if (uaRef.current && !uaRef.current.isStopped()) {
-          uaRef.current.start();
-        }
+        const u = uaRef.current;
+        if (u && !u.isStopped()) u.start();
       }, delay);
     });
 
@@ -149,12 +186,33 @@ export default function useSIP(config) {
       clearTimeout(retryTimerRef.current);
     });
 
-    ua.on('unregistered', () => setStatus('idle'));
-    ua.on('registrationFailed', () => setStatus('failed'));
+    ua.on('unregistered', () => {
+      setStatus((prev) => (prev === 'failed' ? 'failed' : 'idle'));
+    });
+
+    ua.on('registrationFailed', (data) => {
+      setStatus('failed');
+      clearTimeout(retryTimerRef.current);
+      const code = data.response?.status_code;
+      const noRetry = code === 401 || code === 403 || code === 404;
+      if (noRetry) return;
+      const delay = getBackoffDelay();
+      retryTimerRef.current = setTimeout(() => {
+        const u = uaRef.current;
+        if (u && !u.isStopped()) {
+          setStatus('connecting');
+          u.register();
+        }
+      }, delay);
+    });
 
     ua.on('newRTCSession', ({ session, originator }) => {
       const callType = originator === 'remote' ? 'incoming' : 'outgoing';
       let answered = false;
+
+      session.on('peerconnection', ({ peerconnection }) => {
+        bindRemoteAudio(peerconnection, ensureRemoteAudioEl(remoteAudioRef));
+      });
 
       if (callType === 'incoming') {
         setIncomingCall(session);
@@ -189,24 +247,32 @@ export default function useSIP(config) {
 
     return () => {
       clearTimeout(retryTimerRef.current);
-      try { ua.stop(); } catch { /* ignore */ }
+      retryTimerRef.current = null;
+      try {
+        ua.stop();
+      } catch {
+        /* ignore */
+      }
       uaRef.current = null;
+      sipDomainRef.current = '';
       setStatus('idle');
       setCurrentCall(null);
       setIncomingCall(null);
     };
-  }, [config?.extension, config?.sipPassword, config?.pbxWssUrl, endCall]);
+  }, [config?.extension, config?.sipPassword, config?.pbxWssUrl, endCall, getBackoffDelay]);
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-  const makeCall = useCallback((number) => {
-    if (!uaRef.current || status !== 'registered') return;
-    const ua = uaRef.current;
-    const hostname = new URL(ua.configuration.sockets[0]._url).hostname;
-    ua.call(`sip:${number}@${hostname}`, {
-      mediaConstraints: { audio: true, video: false },
-      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
-    });
-  }, [status]);
+  const makeCall = useCallback(
+    (number) => {
+      if (!uaRef.current || status !== 'registered') return;
+      const host = sipDomainRef.current;
+      if (!host) return;
+      uaRef.current.call(`sip:${number}@${host}`, {
+        mediaConstraints: { audio: true, video: false },
+        rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
+      });
+    },
+    [status],
+  );
 
   const answerCall = useCallback(() => {
     if (!incomingCall) return;
@@ -223,24 +289,32 @@ export default function useSIP(config) {
 
   const hangup = useCallback(() => {
     if (!currentCall) return;
-    try { currentCall.terminate(); } catch { setCurrentCall(null); }
+    try {
+      currentCall.terminate();
+    } catch {
+      setCurrentCall(null);
+    }
   }, [currentCall]);
 
   const sendDTMF = useCallback((tone) => {
     if (!currentCall) return;
-    try { currentCall.sendDTMF(tone, { duration: 100, interToneGap: 70 }); } catch { /* ignore */ }
+    try {
+      currentCall.sendDTMF(tone, { duration: 100, interToneGap: 70 });
+    } catch {
+      /* ignore */
+    }
   }, [currentCall]);
 
   const toggleMute = useCallback(() => {
     if (!currentCall) return;
-    currentCall[isMuted ? 'unmute' : 'mute']({ audio: true });
-    setIsMuted((v) => !v);
+    if (isMuted) currentCall.unmute({ audio: true });
+    else currentCall.mute({ audio: true });
   }, [currentCall, isMuted]);
 
   const toggleHold = useCallback(() => {
     if (!currentCall) return;
-    currentCall[isOnHold ? 'unhold' : 'hold']();
-    setIsOnHold((v) => !v);
+    if (isOnHold) currentCall.unhold();
+    else currentCall.hold();
   }, [currentCall, isOnHold]);
 
   return {

@@ -1,8 +1,7 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 
 /**
- * SIP Context — stores connection credentials in localStorage
- * No backend, no auth, no database. Pure LAN phone.
+ * SIP Context — credentials in localStorage only (no backend).
  */
 const SIPContext = createContext(null);
 
@@ -17,8 +16,22 @@ const STORAGE_KEY = 'webrtc-phone-config';
 function loadConfig() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    const ok =
+      typeof o?.extension === 'string' &&
+      typeof o?.sipPassword === 'string' &&
+      typeof o?.pbxWssUrl === 'string' &&
+      o.extension.length > 0 &&
+      o.sipPassword.length > 0 &&
+      o.pbxWssUrl.length > 0;
+    if (!ok) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return o;
   } catch {
+    localStorage.removeItem(STORAGE_KEY);
     return null;
   }
 }
@@ -32,25 +45,21 @@ function clearConfig() {
 }
 
 export function SIPProvider({ children }) {
-  const initialConfig = loadConfig();
-  const [config, setConfig] = useState(initialConfig);
-  const [isConnected, setIsConnected] = useState(() => !!initialConfig);
+  const [config, setConfig] = useState(loadConfig);
 
   const connect = useCallback((extension, sipPassword, pbxWssUrl) => {
     const cfg = { extension, sipPassword, pbxWssUrl };
     saveConfig(cfg);
     setConfig(cfg);
-    setIsConnected(true);
   }, []);
 
   const disconnect = useCallback(() => {
     clearConfig();
     setConfig(null);
-    setIsConnected(false);
   }, []);
 
   return (
-    <SIPContext.Provider value={{ config, isConnected, connect, disconnect }}>
+    <SIPContext.Provider value={{ config, connect, disconnect }}>
       {children}
     </SIPContext.Provider>
   );

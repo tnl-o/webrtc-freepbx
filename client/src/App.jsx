@@ -4,11 +4,10 @@ import PhoneScreen from './pages/PhonePage.jsx';
 import usePhone from './hooks/usePhone.js';
 
 function AppContent() {
-  const { config, isConnected, connect, disconnect } = useSIPContext();
-  const sip = usePhone(isConnected ? config : null);
+  const { config, connect, disconnect } = useSIPContext();
+  const sip = usePhone(config);
 
-  // Show phone screen when connected
-  if (isConnected && config) {
+  if (config) {
     return (
       <PhoneScreen
         status={sip.status}
@@ -30,7 +29,6 @@ function AppContent() {
     );
   }
 
-  // Show connect screen when not connected
   return <QuickConnect onConnect={connect} />;
 }
 
