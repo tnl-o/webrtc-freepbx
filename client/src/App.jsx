@@ -72,10 +72,11 @@ function RequireAuth({ children, requiredRole }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 text-sm">Loading…</p>
+      <div className="bg-app min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-t-transparent animate-spin"
+            style={{ borderColor: 'rgba(232,121,249,0.3)', borderTopColor: '#e879f9' }} />
+          <p className="text-sm" style={{ color: 'rgba(216,180,254,0.5)' }}>Loading…</p>
         </div>
       </div>
     );
@@ -87,11 +88,17 @@ function RequireAuth({ children, requiredRole }) {
 
   if (requiredRole && user.role !== requiredRole) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="card text-center max-w-sm">
-          <div className="text-4xl mb-3">🚫</div>
-          <h2 className="text-xl font-bold text-red-400 mb-2">Access Denied</h2>
-          <p className="text-slate-400 text-sm">
+      <div className="bg-app min-h-screen flex items-center justify-center p-4">
+        <div className="glass p-8 text-center max-w-sm animate-fade-in">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: 'rgba(251,113,133,0.12)', border: '1px solid rgba(251,113,133,0.3)' }}>
+            <svg className="w-8 h-8" style={{ color: '#fb7185' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+          </div>
+          <h2 className="font-display text-xl font-semibold text-white mb-2">Access Denied</h2>
+          <p className="text-sm" style={{ color: 'rgba(216,180,254,0.5)' }}>
             You do not have permission to view this page.
           </p>
         </div>

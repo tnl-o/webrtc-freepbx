@@ -1,66 +1,67 @@
 import React from 'react';
 
-const STATUS_CONFIG = {
+const CONFIGS = {
   Registered: {
-    dot: 'bg-emerald-400 shadow-emerald-400/50',
-    text: 'text-emerald-400',
-    label: 'Registered',
+    color: '#34d399',
+    glow:  'rgba(52, 211, 153, 0.5)',
+    label: 'Connected',
     pulse: false,
   },
   Registering: {
-    dot: 'bg-yellow-400 shadow-yellow-400/50',
-    text: 'text-yellow-400',
-    label: 'Registering…',
+    color: '#fbbf24',
+    glow:  'rgba(251, 191, 36, 0.5)',
+    label: 'Connecting…',
     pulse: true,
   },
   Initializing: {
-    dot: 'bg-slate-400',
-    text: 'text-slate-400',
-    label: 'Initializing…',
+    color: '#a78bfa',
+    glow:  'rgba(167, 139, 250, 0.5)',
+    label: 'Starting…',
     pulse: true,
   },
   Unregistered: {
-    dot: 'bg-red-400 shadow-red-400/50',
-    text: 'text-red-400',
-    label: 'Unregistered',
+    color: '#fb7185',
+    glow:  'rgba(251, 113, 133, 0.5)',
+    label: 'Disconnected',
     pulse: false,
   },
 };
 
 function getConfig(status) {
-  if (STATUS_CONFIG[status]) return { ...STATUS_CONFIG[status], label: STATUS_CONFIG[status].label };
+  if (CONFIGS[status]) return CONFIGS[status];
   if (status.startsWith('Failed:')) {
-    return {
-      dot: 'bg-red-400 shadow-red-400/50',
-      text: 'text-red-400',
-      label: status,
-      pulse: false,
-    };
+    return { color: '#fb7185', glow: 'rgba(251,113,133,0.5)', label: status, pulse: false };
   }
-  return {
-    dot: 'bg-slate-400',
-    text: 'text-slate-400',
-    label: status,
-    pulse: false,
-  };
+  return { color: '#a78bfa', glow: 'rgba(167,139,250,0.5)', label: status, pulse: true };
 }
 
 export default function StatusBar({ status }) {
-  const config = getConfig(status);
+  const cfg = getConfig(status);
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-700/50 rounded-full border border-slate-600/50">
+    <div
+      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
+      style={{
+        background: `rgba(${hexToRgb(cfg.color)}, 0.1)`,
+        border:     `1px solid rgba(${hexToRgb(cfg.color)}, 0.3)`,
+        color:      cfg.color,
+      }}
+    >
       <span
-        className={[
-          'w-2 h-2 rounded-full shadow-sm',
-          config.dot,
-          config.pulse ? 'animate-pulse' : '',
-        ].join(' ')}
-        aria-hidden="true"
+        className={`w-1.5 h-1.5 rounded-full ${cfg.pulse ? 'animate-pulse' : ''}`}
+        style={{
+          background:  cfg.color,
+          boxShadow:   `0 0 6px ${cfg.glow}`,
+        }}
       />
-      <span className={['text-xs font-medium', config.text].join(' ')}>
-        {config.label}
-      </span>
+      {cfg.label}
     </div>
   );
+}
+
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r}, ${g}, ${b}`;
 }
